@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>ChatIF - Tela de testes (HTML)</title>
+    <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+
+<h1>ChatIF - Tela de testes</h1>
+
+<p class="mensagem">
+    Modo demonstração: esta página usa dados de exemplo (definidos no script abaixo)
+    e não se conecta ao MySQL. Serve para testar a tela e a lógica abrindo o arquivo direto no navegador.
+</p>
+
+<p id="mensagem" class="mensagem" style="display:none"></p>
+
+<!-- Campo de pesquisa -->
+<div class="secao">
+    <h2>Pesquisar pergunta</h2>
+    <input type="text" id="busca" size="50" maxlength="200" placeholder="Digite uma pergunta, palavra ou frase">
+    <button type="button" id="btnPesquisar">Pesquisar</button>
+</div>
+
+<!-- Filtro por categoria -->
+<div class="secao">
+    <h2>Filtrar por categoria</h2>
+    <select id="categoria">
+        <option value="">-- Selecione --</option>
+    </select>
+    <button type="button" id="btnFiltrar">Filtrar</button>
+</div>
+
+
+
+<!-- Lista de perguntas -->
+<div class="secao">
+    <h2 id="titulo">Todas as perguntas</h2>
+    <p id="total"></p>
+    <div id="lista"></div>
+</div>
+
+<script>
+// ============================================================
+// DADOS DE EXEMPLO
+// ============================================================
+var categorias = [
+    { id_categoria: 1, nome: "Matrícula" },
+    { id_categoria: 2, nome: "Biblioteca" },
+    { id_categoria: 3, nome: "Cursos" },
+    { id_categoria: 4, nome: "Estágio" }
+];
+
+var perguntas = [
+    {
+        id_pergunta: 1,
+        pergunta: "Como faço a rematrícula?",
+        resposta: "A rematrícula é feita pelo portal do aluno, dentro do prazo do calendário acadêmico.",
+        id_categoria: 1,
+        autor: "Secretaria",
+        data_criacao: "2026-09-20T10:30:00",
+        palavras_chave: "rematrícula, matrícula, portal, prazo"
+    },
+    {
+        id_pergunta: 2,
+        pergunta: "Qual o horário de funcionamento da biblioteca?",
+        resposta: "A biblioteca funciona de segunda a sexta, das 7h30 às 21h30.",
+        id_categoria: 2,
+        autor: "Maria Souza",
+        data_criacao: "2026-09-18T14:00:00",
+        palavras_chave: "biblioteca, horário, funcionamento"
+    },
+    {
+        id_pergunta: 3,
+        pergunta: "Como emprestar livros?",
+        resposta: "Basta apresentar a carteirinha de estudante no balcão de atendimento da biblioteca.",
+        id_categoria: 2,
+        autor: "Maria Souza",
+        data_criacao: "2026-09-10T09:15:00",
+        palavras_chave: "livros, empréstimo, carteirinha, biblioteca"
+    },
+    {
+        id_pergunta: 4,
+        pergunta: "Quais cursos técnicos estão disponíveis?",
+        resposta: "Os cursos técnicos ofertados estão listados na página de cursos do campus.",
+        id_categoria: 3,
+        autor: "Coordenação",
+        data_criacao: "2026-08-30T16:45:00",
+        palavras_chave: "cursos, técnico, ensino, campus"
+    },
+    {
+        id_pergunta: 5,
+        pergunta: "Como encontrar um estágio?",
+        resposta: "Procure a coordenação de estágios, que divulga as vagas e orienta sobre a documentação.",
+        id_categoria: 4,
+        autor: "João Lima",
+        data_criacao: "2026-08-15T11:20:00",
+        palavras_chave: "estágio, vagas, documentação"
+    },
+    {
+        id_pergunta: 6,
+        pergunta: "Quais documentos preciso para a matrícula?",
+        resposta: "RG, CPF, comprovante de residência e histórico escolar.",
+        id_categoria: 1,
+        autor: "Secretaria",
+        data_criacao: "2026-07-01T08:00:00",
+        palavras_chave: ""
+    }
+];
+
+// ============================================================
+// FUNÇÕES AUXILIARES
+// ============================================================
+
+function listarPerguntas() {
+    return perguntas.slice().sort(function (a, b) {
+        return new Date(b.data_criacao) - new Date(a.data_criacao);
+    });
+}
+
+function filtrarCategoria(idCategoria) {
+    var id = parseInt(idCategoria, 10);
+    if (isNaN(id) || id <= 0) {
+        return [];
+    }
+    return listarPerguntas().filter(function (p) {
+        return p.id_categoria === id;
+    });
+}
+
+function semAcento(texto) {
+    return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Extrai palavras relevantes e descarta stopwords
+function identificarPalavras(texto) {
+    texto = texto.trim();
+    if (texto === "") {
+        return [];
+    }
+
+    var stopwords = [
+        "que", "em", "para", "com", "uma", "um", "como", "qual", "quais",
+        "onde", "quando", "por", "sobre", "dos", "das", "pelo", "pela", "faz", "faco"
+    ];
+
+    texto = semAcento(texto.toLowerCase());
+    texto = texto.replace(/[^\p{L}\p{N}\s]/gu, " ");
+
+    var palavras = texto.split(/\s+/).filter(function (p) {
+        return p.length >= 3 && stopwords.indexOf(p) === -1;
+    });
+
+    return palavras.filter(function (p, i) {
+        return palavras.indexOf(p) === i;
+    });
+}
+
+// NOVO MOTOR DE BUSCA: Pontuação de relevância por palavras-chave
+function pesquisarPorPalavras(textoUsuario) {
+    var palavrasUsuario = identificarPalavras(textoUsuario);
+    if (palavrasUsuario.length === 0) {
+        return [];
+    }
+
+    var resultados = [];
+
+    perguntas.forEach(function (p) {
+        if (!p.palavras_chave) return;
+
+        var palavrasBanco = semAcento(p.palavras_chave.toLowerCase())
+            .split(",")
+            .map(function (w) { return w.trim(); })
+            .filter(Boolean);
+
+        var pontos = 0;
+
+        palavrasUsuario.forEach(function (palavra) {
+            if (palavrasBanco.includes(palavra)) {
+                pontos += 2; // Acerto exato na palavra-chave
+            } else {
+                palavrasBanco.forEach(function (pb) {
+                    if (pb.includes(palavra) || palavra.includes(pb)) {
+                        pontos += 1; // Acerto parcial
+                    }
+                });
+            }
+        });
+
+        if (pontos > 0) {
+            resultados.push({
+                pergunta: p,
+                pontos: pontos
+            });
+        }
+    });
+
+    // Ordena do resultado com maior pontuação para o menor
+    resultados.sort(function (a, b) {
+        return b.pontos - a.pontos;
+    });
+
+    return resultados.map(function (item) {
+        return item.pergunta;
+    });
+}
+
+function mostrarPalavras(idPergunta) {
+    var id = parseInt(idPergunta, 10);
+    if (isNaN(id) || id <= 0) {
+        return [];
+    }
+    var achada = perguntas.find(function (p) { return p.id_pergunta === id; });
+    if (!achada || achada.palavras_chave.trim() === "") {
+        return [];
+    }
+    return achada.palavras_chave.split(",")
+        .map(function (p) { return p.trim(); })
+        .filter(function (p) { return p !== ""; });
+}
+
+// ============================================================
+// INTERFACE DA TELA
+// ============================================================
+
+function h(texto) {
+    var div = document.createElement("div");
+    div.textContent = String(texto);
+    return div.innerHTML;
+}
+
+function nomeCategoria(id) {
+    var c = categorias.find(function (x) { return x.id_categoria === id; });
+    return c ? c.nome : "";
+}
+
+function formatarData(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString("pt-BR") + " " +
+           d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function mostrarMensagem(texto) {
+    var el = document.getElementById("mensagem");
+    el.textContent = texto;
+    el.style.display = texto ? "block" : "none";
+}
+
+function exibirPerguntas(lista, titulo, idMostrar) {
+    document.getElementById("titulo").textContent = titulo;
+    document.getElementById("total").textContent = "Total: " + lista.length;
+
+    var area = document.getElementById("lista");
+
+    if (lista.length === 0) {
+        area.innerHTML = "<p>Nenhuma pergunta encontrada.</p>";
+        return;
+    }
+
+    var html = "";
+    lista.forEach(function (p) {
+        html += "<div class='pergunta'>";
+        html += "<p><strong>Pergunta:</strong> " + h(p.pergunta) + "</p>";
+        html += "<p><strong>Resposta:</strong> " + h(p.resposta) + "</p>";
+        html += "<p><strong>Categoria:</strong> " + h(nomeCategoria(p.id_categoria)) + "</p>";
+        html += "<p><strong>Autor:</strong> " + h(p.autor) + "</p>";
+        html += "<p><strong>Data de criação:</strong> " + h(formatarData(p.data_criacao)) + "</p>";
+        html += "<p><strong>Palavras-chave:</strong> " + h(p.palavras_chave) + "</p>";
+        html += "<button type='button' data-id='" + p.id_pergunta + "'>Mostrar palavras-chave</button>";
+
+        if (idMostrar === p.id_pergunta) {
+            var palavras = mostrarPalavras(p.id_pergunta);
+            html += "<div class='resultado'>";
+            if (palavras.length === 0) {
+                html += "<p>Esta pergunta não possui palavras-chave.</p>";
+            } else {
+                html += "<ul>";
+                palavras.forEach(function (w) { html += "<li>" + h(w) + "</li>"; });
+                html += "</ul>";
+            }
+            html += "</div>";
+        }
+        html += "</div>";
+    });
+    area.innerHTML = html;
+
+    area.querySelectorAll("button[data-id]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+            exibirPerguntas(lista, titulo, parseInt(btn.getAttribute("data-id"), 10));
+        });
+    });
+}
+
+// Preenche o SELECT de categorias
+var select = document.getElementById("categoria");
+categorias.forEach(function (c) {
+    var opcao = document.createElement("option");
+    opcao.value = c.id_categoria;
+    opcao.textContent = c.nome;
+    select.appendChild(opcao);
+});
+
+// Botão Pesquisar (chama a busca por relevância)
+document.getElementById("btnPesquisar").addEventListener("click", function () {
+    var busca = document.getElementById("busca").value.trim();
+    if (busca === "") {
+        mostrarMensagem("Digite uma palavra ou frase para pesquisar.");
+        exibirPerguntas(listarPerguntas(), "Todas as perguntas", 0);
+        return;
+    }
+    mostrarMensagem("");
+    var resultados = pesquisarPorPalavras(busca);
+    exibirPerguntas(resultados, "Resultados encontrados para: \"" + busca + "\"", 0);
+});
+
+// Botão Filtrar
+document.getElementById("btnFiltrar").addEventListener("click", function () {
+    var id = parseInt(select.value, 10);
+    if (isNaN(id) || id <= 0) {
+        mostrarMensagem("Selecione uma categoria para filtrar.");
+        exibirPerguntas(listarPerguntas(), "Todas as perguntas", 0);
+        return;
+    }
+    mostrarMensagem("");
+    exibirPerguntas(filtrarCategoria(id), "Perguntas da categoria: " + nomeCategoria(id), 0);
+});
+
+// Botão Identificar palavras
+document.getElementById("btnIdentificar").addEventListener("click", function () {
+    var texto = document.getElementById("texto").value.trim();
+    var area = document.getElementById("resultadoTexto");
+
+    if (texto === "") {
+        mostrarMensagem("Digite uma frase para identificar as palavras.");
+        area.innerHTML = "";
+        return;
+    }
+    mostrarMensagem("");
+
+    var palavras = identificarPalavras(texto);
+    var html = "<div class='resultado'>";
+    if (palavras.length === 0) {
+        html += "<p>Nenhuma palavra relevante identificada.</p>";
+    } else {
+        html += "<p>Palavras identificadas (" + palavras.length + "):</p><ul>";
+        palavras.forEach(function (w) { html += "<li>" + h(w) + "</li>"; });
+        html += "</ul>";
+    }
+    html += "</div>";
+    area.innerHTML = html;
+});
+
+// Carga inicial
+exibirPerguntas(listarPerguntas(), "Todas as perguntas", 0);
+</script>
+
+</body>
+</html>
